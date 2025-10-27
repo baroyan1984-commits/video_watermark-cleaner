@@ -1,55 +1,43 @@
 import telebot
 import os
+import requests
 from moviepy.editor import VideoFileClip
 
-# === Укажи свой токен бота ===
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Render возьмёт токен из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
-
-@bot.message_handler(commands=['start'])
-def start_message(message):
-    bot.reply_to(message, "👋 Привет! Отправь мне видео, и я обработаю его (обрежу первые 3 секунды).")
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     try:
-        bot.reply_to(message, "📥 Получаю видео...")
+        bot.reply_to(message, "🎬 Видео получено! Начинаю обработку...")
+
+        # Получаем ссылку на видео с серверов Telegram
         file_info = bot.get_file(message.video.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        input_path = "input.mp4"
+        output_path = "output.mp4"
 
-        filename = f"/tmp/{message.video.file_unique_id}.mp4"
-        with open(filename, 'wb') as new_file:
-            new_file.write(downloaded_file)
+        # Скачиваем видео
+        r = requests.get(file_url)
+        with open(input_path, 'wb') as f:
+            f.write(r.content)
 
-        bot.reply_to(message, "🎞 Видео получено! Начинаю обработку...")
+        bot.send_message(message.chat.id, "⏳ Обрабатываю видео, подожди немного...")
 
-        processed_file = f"/tmp/processed_{message.video.file_unique_id}.mp4"
-
-        # === Обрезаем первые 3 секунды ===
-        clip = VideoFileClip(filename)
-        duration = clip.duration
-
-        if duration > 3:
-            processed_clip = clip.subclip(3, duration)
-        else:
-            processed_clip = clip  # если короткое видео — оставляем как есть
-
-        processed_clip.write_videofile(processed_file, codec="libx264", audio_codec="aac")
+        # Обработка видео (пока просто конвертация)
+        clip = VideoFileClip(input_path)
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
         clip.close()
-        processed_clip.close()
 
-        # === Отправляем обратно ===
-        with open(processed_file, 'rb') as vid:
-            bot.send_video(message.chat.id, vid)
+        bot.send_message(message.chat.id, "✅ Готово! Отправляю обратно...")
 
-        bot.reply_to(message, "✅ Готово! Видео обработано и отправлено обратно.")
+        with open(output_path, 'rb') as f:
+            bot.send_video(message.chat.id, f)
 
-        # === Удаляем временные файлы ===
-        os.remove(filename)
-        os.remove(processed_file)
+        os.remove(input_path)
+        os.remove(output_path)
 
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Ошибка при обработке видео: {e}")
+        bot.send_message(message.chat.id, f"⚠️ Ошибка при обработке: {e}")
 
-# === Запуск бота ===
 bot.polling(none_stop=True)
