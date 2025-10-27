@@ -1,67 +1,59 @@
-# Byte-compiled / optimized / DLL files
+# 🧠 Python
 __pycache__/
-*.py[codz]
-*$py.class
-
-# C extensions
+*.py[cod]
+*.pyo
+*.pyd
 *.so
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+# 🧰 Virtual environments
+env/
+venv/
+.venv/
 *.egg-info/
-.installed.cfg
+.Python
+
+# 📦 Packages
+build/
+dist/
 *.egg
-MANIFEST
+.eggs/
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+# ⚙️ IDE / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+# 🔒 Environment & config
+.env
+*.secret
+*.key
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-.hypothesis/
-.pytest_cache/
-cover/
+# 🎥 Video and media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.jpg
+*.jpeg
+*.png
 
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
+# 🧾 Logs
 *.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+logs/
+log.txt
 
-# Flask stuff:
+# 🧹 Cache & temporary files
+*.tmp
+*.bak
+*.old
+tmp/
+temp/
+
+# 🧰 Render temporary
+render.yaml
 instance/
 .webassets-cache
 
