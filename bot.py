@@ -1,43 +1,55 @@
-
-import os
 import telebot
-import requests
+import os
+from moviepy.editor import VideoFileClip
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-if not TOKEN:
-    raise SystemExit("ERROR: TELEGRAM_TOKEN env var is not set")
-
-bot = telebot.TeleBot(TOKEN)
+# === Укажи свой токен бота ===
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Render возьмёт токен из переменных окружения
+bot = telebot.TeleBot(BOT_TOKEN)
 
 @bot.message_handler(commands=['start'])
-def cmd_start(message):
-    bot.reply_to(message, "👋 Бот запущен. Пришли видео или сообщение.")
-
-@bot.message_handler(content_types=['text'])
-def echo_text(message):
-    bot.reply_to(message, "Я получил сообщение. Пришли видео, и я сохраню его на сервере.")
+def start_message(message):
+    bot.reply_to(message, "👋 Привет! Отправь мне видео, и я обработаю его (обрежу первые 3 секунды).")
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     try:
-        bot.reply_to(message, "🎬 Видео получено! Загружаю на сервер...")
-
+        bot.reply_to(message, "📥 Получаю видео...")
         file_info = bot.get_file(message.video.file_id)
-        file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
+        downloaded_file = bot.download_file(file_info.file_path)
+
         filename = f"/tmp/{message.video.file_unique_id}.mp4"
+        with open(filename, 'wb') as new_file:
+            new_file.write(downloaded_file)
 
-        r = requests.get(file_url, stream=True, timeout=60)
-        r.raise_for_status()
-        with open(filename, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+        bot.reply_to(message, "🎞 Видео получено! Начинаю обработку...")
 
-        bot.reply_to(message, f"✅ Видео сохранено как {os.path.basename(filename)}. (Обработка пока не подключена)")
+        processed_file = f"/tmp/processed_{message.video.file_unique_id}.mp4"
+
+        # === Обрезаем первые 3 секунды ===
+        clip = VideoFileClip(filename)
+        duration = clip.duration
+
+        if duration > 3:
+            processed_clip = clip.subclip(3, duration)
+        else:
+            processed_clip = clip  # если короткое видео — оставляем как есть
+
+        processed_clip.write_videofile(processed_file, codec="libx264", audio_codec="aac")
+        clip.close()
+        processed_clip.close()
+
+        # === Отправляем обратно ===
+        with open(processed_file, 'rb') as vid:
+            bot.send_video(message.chat.id, vid)
+
+        bot.reply_to(message, "✅ Готово! Видео обработано и отправлено обратно.")
+
+        # === Удаляем временные файлы ===
+        os.remove(filename)
+        os.remove(processed_file)
+
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Ошибка: {e}")
+        bot.reply_to(message, f"⚠️ Ошибка при обработке видео: {e}")
 
-if __name__ == "__main__":
-    print("🤖 Бот стартует...")
-    bot.polling(none_stop=True)
-
+# === Запуск бота ===
+bot.polling(none_stop=True)
