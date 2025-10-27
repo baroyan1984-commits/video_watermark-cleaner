@@ -1,6 +1,7 @@
 import telebot
 import os
 import requests
+import time
 from moviepy.editor import VideoFileClip
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -23,22 +24,32 @@ def handle_video(message):
             f.write(r.content)
 
         bot.edit_message_text("⚙️ [30%] Видео скачано. Подготавливаю к обработке...", message.chat.id, progress_msg.message_id)
+        time.sleep(1)
 
-        clip = VideoFileClip(input_path)
         bot.edit_message_text("🎞 [60%] Применяю обработку...", message.chat.id, progress_msg.message_id)
+        time.sleep(2)
 
-        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        # ✅ открываем файл ОДИН раз
+        clip = VideoFileClip(input_path)
+        duration = min(clip.duration, 5)  # ограничим длину до 5 секунд для Render Free
+        processed_clip = clip.subclip(0, duration)
+        processed_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
         clip.close()
+        processed_clip.close()
 
         bot.edit_message_text("🚀 [90%] Почти готово...", message.chat.id, progress_msg.message_id)
+        time.sleep(1)
 
         with open(output_path, 'rb') as f:
             bot.send_video(message.chat.id, f)
 
         bot.edit_message_text("✅ [100%] Готово! Видео успешно обработано 🎉", message.chat.id, progress_msg.message_id)
 
-        os.remove(input_path)
-        os.remove(output_path)
+        # Удаляем временные файлы
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
 
     except Exception as e:
         bot.send_message(message.chat.id, f"⚠️ Ошибка при обработке: {e}")
