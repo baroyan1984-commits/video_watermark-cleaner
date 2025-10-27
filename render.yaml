@@ -6,4 +6,4 @@ services:
     startCommand: "python bot.py"
     envVars:
       - key: BOT_TOKEN
-        value: "твой_токен_бота"
+        value: "8271382093:AAE9JvChUNMqgvRG3p0xObGopGM7ENyMRCM"
