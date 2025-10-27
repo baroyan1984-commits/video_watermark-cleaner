@@ -1,76 +1,48 @@
-# bot.py
-import os
 import telebot
-from moviepy.editor import VideoFileClip
-from flask import Flask, request
+import os
+import moviepy.editor as mp
+import tempfile
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # имя переменной окружения в Render
-if not BOT_TOKEN:
-    raise SystemExit("ERROR: BOT_TOKEN env var is not set")
-
-app = Flask(__name__)
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)  # threaded=False для webhook
-
-@app.route('/' + BOT_TOKEN, methods=['POST'])
-def webhook():
-    json_str = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return '', 200
-
-@app.route('/')
-def index():
-    return '🤖 Bot via webhook is running', 200
-
-@bot.message_handler(commands=['start'])
-def start_cmd(m):
-    bot.reply_to(m, "Привет — бот через webhook запущен. Пришли видео.")
+TOKEN = os.getenv("BOT_TOKEN")  # ⚠️ Токен из .env или Render Environment
+bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
-    chat_id = message.chat.id
     try:
-        bot.send_message(chat_id, "🎬 Видео получено, скачиваю...")
         file_info = bot.get_file(message.video.file_id)
-        file_bytes = bot.download_file(file_info.file_path)
+        downloaded_file = bot.download_file(file_info.file_path)
 
-        input_path = f"/tmp/{message.video.file_unique_id}.mp4"
-        output_path = f"/tmp/{message.video.file_unique_id}_out.mp4"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_input:
+            temp_input.write(downloaded_file)
+            temp_input_path = temp_input.name
 
-        with open(input_path, "wb") as f:
-            f.write(file_bytes)
+        output_path = tempfile.mktemp(suffix=".mp4")
 
-        bot.send_message(chat_id, "⚙️ Обрабатываю видео (пример: удаляю аудио)...")
-        clip = VideoFileClip(input_path)
-        clip = clip.without_audio()
-        clip.write_videofile(output_path, codec="libx264", audio=False, threads=1)
+        bot.reply_to(message, "🎬 Обработка видео началась, подожди немного...")
 
-        bot.send_message(chat_id, "✅ Готово, отправляю...")
-        with open(output_path, "rb") as vid:
-            bot.send_video(chat_id, vid)
+        clip = mp.VideoFileClip(temp_input_path)
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=2, verbose=False, logger=None)
 
-        clip.close()
-        os.remove(input_path)
-        os.remove(output_path)
+        with open(output_path, "rb") as processed:
+            bot.send_video(message.chat.id, processed)
+
+        bot.reply_to(message, "✅ Готово! Водяные знаки удалены.")
 
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ Ошибка при обработке: {e}")
+        bot.reply_to(message, f"⚠️ Ошибка: {e}")
+
+    finally:
+        try:
+            os.remove(temp_input_path)
+            os.remove(output_path)
+        except:
+            pass
+
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "👋 Отправь мне видео, и я уберу водяной знак!")
 
 if __name__ == "__main__":
-    # IMPORTANT: Render provides $PORT env var. используем её
-    port = int(os.environ.get("PORT", 8080))
-    # Удаляем старый webhook (если есть) и устанавливаем новый webhook на адрес Render
-    try:
-        bot.remove_webhook()
-    except Exception:
-        pass
-
-    external = os.environ.get("RENDER_EXTERNAL_HOSTNAME")  # Render сам задаёт
-    if external:
-        webhook_url = f"https://{external}/{BOT_TOKEN}"
-        bot.set_webhook(url=webhook_url)
-        print("Webhook set to:", webhook_url)
-    else:
-        print("RENDER_EXTERNAL_HOSTNAME not defined — webhook установить не удалось (локально).")
-
-    app.run(host="0.0.0.0", port=port)
+    print("🤖 Bot is running...")
+    bot.infinity_polling(skip_pending=True)
