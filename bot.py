@@ -1,124 +1,98 @@
-import logging
-import asyncio
-import random
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from io import BytesIO
+import telebot
+from telebot import types
+import os
+from moviepy.editor import VideoFileClip
+from flask import Flask
+import threading
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# ТВОЙ ТОКЕН
+# === Настройки ===
 BOT_TOKEN = "7359754732:AAGdpBIOTLFoqzyj4z4zyTyfQRAA22a0w_4"
+CHANNEL_USERNAME = "@Franglon"  # username канала
+CHANNEL_INVITE_LINK = "https://t.me/Franglon"  # ссылка-приглашение
 
-def create_progress_bar(percentage, bar_length=15):
-    filled_length = int(bar_length * percentage // 100)
-    bar = '🟩' * filled_length + '⬜' * (bar_length - filled_length)
-    return f"[{bar}] {percentage}%"
+bot = telebot.TeleBot(BOT_TOKEN)
 
-async def send_progress_update(chat_id, percentage, stage, context, message_id=None):
+# === Проверка подписки ===
+def is_subscribed(user_id):
     try:
-        stages = {
-            "download": "📥 Скачивание видео...",
-            "analyze": "🔍 Анализ водяных знаков...", 
-            "process": "🎬 Обработка видео...",
-            "final": "📹 Финальное кодирование...",
-            "done": "✅ Обработка завершена!"
-        }
-        
-        progress_text = f"**Video Watermark Remover Pro**\n\n"
-        progress_text += f"**Стадия:** {stages[stage]}\n"
-        progress_text += f"**Прогресс:** {create_progress_bar(percentage)}\n"
-        
-        if stage == "process":
-            time_left = max(5, (100 - percentage) // 10)
-            progress_text += f"**Осталось:** ~{time_left} сек\n"
-        elif stage == "analyze":
-            progress_text += f"**Обнаружено водяных знаков:** {random.randint(1, 3)}\n"
-        
-        if message_id:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=progress_text,
-                    parse_mode='Markdown'
-                )
-                return message_id
-            except:
-                pass
-        
-        message = await context.bot.send_message(
-            chat_id=chat_id,
-            text=progress_text,
-            parse_mode='Markdown'
-        )
-        return message.message_id
-        
+        chat_member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return chat_member.status in ["member", "administrator", "creator"]
+    except Exception:
+        return False
+
+# === Команда /start ===
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.from_user.id
+    if is_subscribed(user_id):
+        bot.send_message(message.chat.id, "✅ Добро пожаловать! Отправь видео, и я удалю водяной знак 🎬")
+    else:
+        markup = types.InlineKeyboardMarkup()
+        subscribe = types.InlineKeyboardButton("📢 Подписаться", url=CHANNEL_INVITE_LINK)
+        check = types.InlineKeyboardButton("✅ Проверить подписку", callback_data="check_sub")
+        markup.add(subscribe)
+        markup.add(check)
+        bot.send_message(message.chat.id, "❗️Чтобы пользоваться ботом, подпишись на канал:", reply_markup=markup)
+
+# === Проверка кнопки ===
+@bot.callback_query_handler(func=lambda call: call.data == "check_sub")
+def callback_check(call):
+    user_id = call.from_user.id
+    if is_subscribed(user_id):
+        bot.send_message(call.message.chat.id, "✅ Отлично! Теперь отправь видео 🎞")
+    else:
+        bot.answer_callback_query(call.id, "❌ Ты ещё не подписан!")
+
+# === Обработка видео ===
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
+    user_id = message.from_user.id
+    if not is_subscribed(user_id):
+        bot.send_message(message.chat.id, "⚠️ Подпишись на канал, чтобы пользоваться ботом.")
+        return
+
+    file_info = bot.get_file(message.video.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    input_path = f"input_{user_id}.mp4"
+    output_path = f"output_{user_id}.mp4"
+
+    with open(input_path, "wb") as new_file:
+        new_file.write(downloaded_file)
+
+    bot.send_message(message.chat.id, "🎬 Обработка видео...")
+
+    try:
+        clip = VideoFileClip(input_path)
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        clip.close()
+
+        with open(output_path, "rb") as video:
+            bot.send_video(message.chat.id, video)
+        bot.send_message(message.chat.id, "✅ Готово! Водяные знаки удалены.")
     except Exception as e:
-        logger.error(f"Error in progress update: {e}")
-        return None
+        bot.send_message(message.chat.id, f"⚠️ Ошибка: {e}")
+    finally:
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
 
-async def simulate_processing(chat_id, context, progress_message_id):
-    try:
-        for i in range(0, 21):
-            progress_message_id = await send_progress_update(chat_id, i, "download", context, progress_message_id)
-            await asyncio.sleep(0.1)
-        
-        for i in range(21, 41):
-            progress_message_id = await send_progress_update(chat_id, i, "analyze", context, progress_message_id)
-            await asyncio.sleep(0.2)
-        
-        for i in range(41, 81):
-            progress_message_id = await send_progress_update(chat_id, i, "process", context, progress_message_id)
-            await asyncio.sleep(0.3)
-        
-        for i in range(81, 101):
-            progress_message_id = await send_progress_update(chat_id, i, "final", context, progress_message_id)
-            await asyncio.sleep(0.2)
-        
-        return progress_message_id
-        
-    except Exception as e:
-        logger.error(f"Error in simulation: {e}")
-        return progress_message_id
+# === Flask для Render ===
+app = Flask(__name__)
 
-def start(update: Update, context: CallbackContext):
-    user = update.message.from_user
-    
-    welcome_text = f"""
-🎬 **Video Watermark Remover Pro** 
+@app.route('/')
+def home():
+    return "🤖 Bot is running on Render!"
 
-Привет {user.first_name}! Я профессиональный инструмент для удаления водяных знаков с видео.
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
-✨ **Возможности:**
-• Автоматическое определение водяных знаков
-• Профессиональная обработка видео  
-• Сохранение качества
-• Реальное время выполнения
+def run_bot():
+    bot.infinity_polling(skip_pending=True)
 
-📹 **Как использовать:**
-1. Отправь мне видео (до 10MB)
-2. Наблюдай за процессом обработки
-3. Получи результат!
-
-**Готов к работе! Отправь мне видео 🚀**
-    """
-    
-    update.message.reply_text(welcome_text)
-
-def handle_video(update: Update, context: CallbackContext):
-    chat_id = update.message.chat_id
-    
-    try:
-        if update.message.video.file_size > 10 * 1024 * 1024:
-            update.message.reply_text("❌ Файл слишком большой! Максимум 10MB.")
-            return
-
-        # Создаем асинхронную задачу для обработки
-        async def process_video():
-            progress_message = update.message.reply_text("🔄 Начинаю обработку видео...")
-            progress_message_id = progress_message.message_id
-            
-            update.message.re
+# === Запуск ===
+if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
+    run_bot()
