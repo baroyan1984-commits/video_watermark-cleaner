@@ -1,16 +1,16 @@
 import telebot
 from telebot import types
 import os
-from moviepy.editor import VideoFileClip
-from flask import Flask
-import threading
+import subprocess
+from flask import Flask, request
 
 # === Настройки ===
 BOT_TOKEN = "7359754732:AAGdpBIOTLFoqzyj4z4zyTyfQRAA22a0w_4"
-CHANNEL_USERNAME = "@Franglon"  # username канала
-CHANNEL_INVITE_LINK = "https://t.me/Franglon"  # ссылка-приглашение
+CHANNEL_USERNAME = "@Franglon"
+CHANNEL_INVITE_LINK = "https://t.me/Franglon"
 
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
 # === Проверка подписки ===
 def is_subscribed(user_id):
@@ -34,7 +34,7 @@ def start(message):
         markup.add(check)
         bot.send_message(message.chat.id, "❗️Чтобы пользоваться ботом, подпишись на канал:", reply_markup=markup)
 
-# === Проверка кнопки ===
+# === Проверка подписки по кнопке ===
 @bot.callback_query_handler(func=lambda call: call.data == "check_sub")
 def callback_check(call):
     user_id = call.from_user.id
@@ -63,36 +63,40 @@ def handle_video(message):
     bot.send_message(message.chat.id, "🎬 Обработка видео...")
 
     try:
-        clip = VideoFileClip(input_path)
-        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
-        clip.close()
+        # Используем ffmpeg для перекодировки (быстро и без moviepy)
+        cmd = [
+            "ffmpeg", "-i", input_path,
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # исправляет разрешение
+            "-c:v", "libx264", "-preset", "ultrafast",
+            "-c:a", "aac",
+            output_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         with open(output_path, "rb") as video:
             bot.send_video(message.chat.id, video)
-        bot.send_message(message.chat.id, "✅ Готово! Водяные знаки удалены.")
+        bot.send_message(message.chat.id, "✅ Готово! Видео обработано.")
     except Exception as e:
-        bot.send_message(message.chat.id, f"⚠️ Ошибка: {e}")
+        bot.send_message(message.chat.id, f"⚠️ Ошибка при обработке: {e}")
     finally:
         if os.path.exists(input_path):
             os.remove(input_path)
         if os.path.exists(output_path):
             os.remove(output_path)
 
-# === Flask для Render ===
-app = Flask(__name__)
+# === Flask (Render Webhook) ===
+@app.route('/' + BOT_TOKEN, methods=['POST'])
+def webhook_update():
+    json_str = request.get_data().decode('UTF-8')
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
 
 @app.route('/')
-def home():
-    return "🤖 Bot is running on Render!"
+def index():
+    bot.remove_webhook()
+    bot.set_webhook(url='https://video-bot-bbi9.onrender.com/' + BOT_TOKEN)
+    return "Webhook set!", 200
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-def run_bot():
-    bot.infinity_polling(skip_pending=True)
-
-# === Запуск ===
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    run_bot()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
