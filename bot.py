@@ -14,9 +14,6 @@ logger = logging.getLogger(__name__)
 # ВСТАВЬ СВОЙ ТОКЕН!
 BOT_TOKEN = "7359754732:AAGdpBIOTLFoqzyj4z4zyTyfQRAA22a0w_4"
 
-# Словарь для хранения прогресса
-user_progress = {}
-
 def create_progress_bar(percentage, bar_length=15):
     """Создает текстовый прогресс-бар"""
     filled_length = int(bar_length * percentage // 100)
@@ -63,6 +60,10 @@ async def send_progress_update(chat_id, percentage, stage, context, message_id=N
             text=progress_text,
             parse_mode='Markdown'
         )
+        return message.message_id
+        
+    except Exception as e:
+        logger.error        )
         return message.message_id
         
     except Exception as e:
