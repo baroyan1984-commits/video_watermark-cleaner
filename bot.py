@@ -1,67 +1,92 @@
-import os
 import telebot
 from telebot import types
-import tempfile
-import moviepy.editor as mp
-import time
+import os
 import requests
+from moviepy.editor import VideoFileClip
+from flask import Flask
 
-# 🔹 Токен из Render Environment
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")  # пример: @KinoMania
+# Токен твоего бота
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7359754732:AAGdpBIOTLFoqzyj4z4zyTyfQRAA22a0w_4")
 
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
+# 🔗 Новая пригласительная ссылка на канал
+CHANNEL_INVITE_LINK = "https://t.me/Franglon"
+CHANNEL_USERNAME = "@Franglon"
 
-# 🔹 Проверка подписки
-def check_subscription(user_id):
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember?chat_id={CHANNEL_USERNAME}&user_id={user_id}"
-        r = requests.get(url)
-        r.raise_for_status()
-        data = r.json()
-        status = data.get("result", {}).get("status")
-        return status in ["member", "administrator", "creator"]
-    except Exception as e:
-        print(f"[Ошибка проверки подписки]: {e}")
-        return False
+@app.route('/')
+def home():
+    return "✅ Bot is running!"
 
-
-# 🔹 Команда /start
+# Команда /start
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
+def start(message):
     markup = types.InlineKeyboardMarkup()
-    btn_sub = types.InlineKeyboardButton("📺 Подписаться на KinoMania", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")
-    markup.add(btn_sub)
-
+    btn = types.InlineKeyboardButton("🔔 Подписаться на канал", url=CHANNEL_INVITE_LINK)
+    markup.add(btn)
     bot.send_message(
         message.chat.id,
-        "👋 Привет! Это бот **KinoMania** 🎬\n\n"
-        "Отправь мне видео, и я помогу обработать его.\n"
-        "⚠️ Перед этим убедись, что ты подписан на наш канал.",
+        "👋 Привет!\nЧтобы пользоваться ботом, подпишись на наш канал 👇",
         reply_markup=markup
     )
 
+# Проверка подписки
+def is_subscribed(user_id):
+    try:
+        member = bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        print(f"Ошибка при проверке подписки: {e}")
+        return False
 
-# 🔹 Обработка видео
+# Обработка видео
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     user_id = message.from_user.id
 
-    # Проверка подписки
-    if not check_subscription(user_id):
+    # Проверяем подписку
+    if not is_subscribed(user_id):
         markup = types.InlineKeyboardMarkup()
-        btn = types.InlineKeyboardButton("🔔 Подписаться на канал", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")
+        btn = types.InlineKeyboardButton("🔔 Подписаться на канал", url=CHANNEL_INVITE_LINK)
         markup.add(btn)
-        bot.reply_to(
-            message,
-            "❌ Чтобы пользоваться ботом, подпишись на канал KinoMania!",
-            reply_markup=markup
-        )
+        bot.reply_to(message, "Чтобы использовать бота, сначала подпишись на канал 👇", reply_markup=markup)
         return
 
-    msg = bot.reply_to(message, "🎬 Видео получено! Начинаю обработку...")
+    # Сохраняем видео
+    file_info = bot.get_file(message.video.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
 
+    input_path = "input_video.mp4"
+    output_path = "output_video.mp4"
+
+    with open(input_path, 'wb') as new_file:
+        new_file.write(downloaded_file)
+
+    # Обрабатываем видео
+    try:
+        clip = VideoFileClip(input_path)
+        clip = clip.subclip(0, clip.duration)
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+        clip.close()
+
+        with open(output_path, 'rb') as video:
+            bot.send_video(message.chat.id, video)
+
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Ошибка при обработке видео: {e}")
+
+    finally:
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+# Flask сервер для Render
+if __name__ == "__main__":
+    from threading import Thread
+    Thread(target=lambda: bot.polling(non_stop=True)).start()
+    app.run(host="0.0.0.0", port=10000)
     try:
         # Сохраняем видео во временный файл
         file_info = bot.get_file(message.video.file_id)
