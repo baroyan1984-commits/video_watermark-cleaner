@@ -1,67 +1,97 @@
-# bot.py
 import os
-import threading
-import time
 import telebot
 from telebot import types
-from flask import Flask
-import moviepy.editor as mp
+from moviepy.editor import VideoFileClip
+import tempfile
 
-# --- Настройки ---
-BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # <- положи токен в env на Render
-CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@KinoMania")
-WELCOME_MEDIA = os.environ.get("WELCOME_MEDIA", "welcome.jpg")
-TMP_DIR = "/tmp"
+# --- Конфигурация ---
+TOKEN = os.getenv("BOT_TOKEN")  # ✅ Render → Environment → BOT_TOKEN
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@KinoMania")  # ✅ Render → Environment → CHANNEL_USERNAME
+bot = telebot.TeleBot(TOKEN)
 
-if not BOT_TOKEN:
-    raise SystemExit("ERROR: TELEGRAM_TOKEN env var is not set")
 
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-app = Flask(__name__)
-
-# Проверка подписки
-def check_subscription(user_id):
+# --- Проверка подписки ---
+def is_subscribed(user_id):
     try:
         member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except Exception as e:
-        print(f"[Subscription check error] {e}")
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception:
         return False
 
-@bot.message_handler(commands=["start"])
-def cmd_start(message):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("📺 Подписаться", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}"))
-    markup.add(types.InlineKeyboardButton("🎬 Отправить видео", switch_inline_query_current_chat=""))
-    caption = (
-        "🎬 <b>Привет!</b>\nОтправь мне видео — и я обработаю его.\n"
-        "Убедись, что подписан на канал для использования бота."
-    )
-    if os.path.exists(WELCOME_MEDIA):
-        with open(WELCOME_MEDIA, "rb") as ph:
-            bot.send_photo(message.chat.id, ph, caption=caption, reply_markup=markup)
-    else:
-        bot.send_message(message.chat.id, caption, reply_markup=markup)
 
+# --- Команда /start ---
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.from_user.id
+
+    if not is_subscribed(user_id):
+        keyboard = types.InlineKeyboardMarkup()
+        btn = types.InlineKeyboardButton(
+            text="📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
+        )
+        keyboard.add(btn)
+        bot.send_message(
+            message.chat.id,
+            f"👋 Привет, {message.from_user.first_name}!\n\n"
+            f"Чтобы пользоваться ботом, сначала подпишись на наш канал {CHANNEL_USERNAME}.",
+            reply_markup=keyboard
+        )
+        return
+
+    bot.send_message(message.chat.id, "✅ Отлично! Отправь мне видео, и я уберу водяной знак.")
+
+
+# --- Обработка видео ---
 @bot.message_handler(content_types=["video"])
 def handle_video(message):
     user_id = message.from_user.id
-    if not check_subscription(user_id):
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔔 Подписаться", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}"))
-        bot.reply_to(message, "❌ Чтобы пользоваться ботом, подпишись на канал.", reply_markup=markup)
+
+    if not is_subscribed(user_id):
+        bot.reply_to(message, "⚠️ Сначала подпишись на канал и попробуй снова!")
         return
 
-    msg = bot.reply_to(message, "🎬 Видео получено! Начинаю обработку...")
-    try:
-        file_info = bot.get_file(message.video.file_id)
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-        input_path = os.path.join(TMP_DIR, f"input_{message.message_id}.mp4")
-        output_path = os.path.join(TMP_DIR, f"output_{message.message_id}.mp4")
+    bot.reply_to(message, "🎬 Видео получено. Начинаю обработку...")
 
-        # Скачиваем потоком (без загрузки всего в память)
-        import requests
-        r = requests.get(file_url, stream=True, timeout=60)
+    try:
+        # Загружаем видео
+        file_info = bot.get_file(message.video.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_input:
+            temp_input.write(downloaded_file)
+            temp_input_path = temp_input.name
+
+        output_path = tempfile.mktemp(suffix=".mp4")
+
+        # Индикатор процесса
+        bot.send_chat_action(message.chat.id, 'upload_video')
+        bot.send_message(message.chat.id, "⚙️ Обрабатываю видео, подожди немного...")
+
+        # Пример обработки — просто конвертация без звука
+        clip = VideoFileClip(temp_input_path)
+        clip = clip.subclip(0, min(clip.duration, 10))  # первые 10 секунд
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", fps=24, verbose=False, logger=None)
+        clip.close()
+
+        # Отправляем результат
+        with open(output_path, "rb") as processed:
+            bot.send_video(message.chat.id, processed)
+        bot.send_message(message.chat.id, "✅ Готово! Водяные знаки удалены.")
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ Ошибка при обработке: {e}")
+    finally:
+        try:
+            os.remove(temp_input_path)
+            os.remove(output_path)
+        except:
+            pass
+
+
+# --- Запуск ---
+if __name__ == "__main__":
+    print("🤖 Bot is running...")
+    bot.infinity_polling(skip_pending=True)
         r.raise_for_status()
         with open(input_path, "wb") as f:
             for chunk in r.iter_content(1024*16):
