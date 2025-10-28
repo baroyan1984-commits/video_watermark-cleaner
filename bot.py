@@ -2,17 +2,16 @@ import telebot
 from telebot import types
 import os
 import time
-import threading
 import moviepy.editor as mp
 
-# 🔹 Токен берётся из переменной окружения (Render → Environment Variables)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# 🔹 Токен нового бота
+BOT_TOKEN = "7359754732:AAGdpBIOTLFoqzyj4z4zyTyfQRAA22a0w_4"
 
 # 🔹 Канал, на который нужно подписаться
 CHANNEL_USERNAME = "@KinoMania"
 
-# 🔹 Приветственное изображение или видео (если есть)
-WELCOME_MEDIA = "welcome.jpg"  # можно заменить на "welcome.mp4"
+# 🔹 Приветственное изображение (замени при желании)
+WELCOME_MEDIA = "welcome.jpg"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
@@ -21,14 +20,14 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 def check_subscription(user_id):
     try:
         member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        return member.status in ['member', 'administrator', 'creator']
+        return member.status in ["member", "administrator", "creator"]
     except Exception as e:
         print(f"[Ошибка подписки]: {e}")
         return False
 
 
 # 🔹 Команда /start
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=["start"])
 def send_welcome(message):
     markup = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("📺 Подписаться на KinoMania", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")
@@ -36,24 +35,21 @@ def send_welcome(message):
     markup.add(btn1)
     markup.add(btn2)
 
-    text = (
-        "🎬 <b>Привет! Я бот KinoMania.</b>\n\n"
-        "Отправь мне видео — и я обработаю его 🔥"
+    caption = (
+        "🎬 <b>Привет!</b> Я бот <b>KinoMania</b>.\n\n"
+        "Отправь мне видео — и я обработаю его 🔥\n"
+        "Но сначала убедись, что ты подписан на наш канал 👇"
     )
 
     if os.path.exists(WELCOME_MEDIA):
-        if WELCOME_MEDIA.endswith(".mp4"):
-            with open(WELCOME_MEDIA, 'rb') as video:
-                bot.send_video(message.chat.id, video, caption=text, reply_markup=markup)
-        else:
-            with open(WELCOME_MEDIA, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo, caption=text, reply_markup=markup)
+        with open(WELCOME_MEDIA, "rb") as photo:
+            bot.send_photo(message.chat.id, photo, caption=caption, reply_markup=markup)
     else:
-        bot.send_message(message.chat.id, text, reply_markup=markup)
+        bot.send_message(message.chat.id, caption, reply_markup=markup)
 
 
 # 🔹 Обработка видео
-@bot.message_handler(content_types=['video'])
+@bot.message_handler(content_types=["video"])
 def handle_video(message):
     user_id = message.from_user.id
 
@@ -62,6 +58,81 @@ def handle_video(message):
         markup = types.InlineKeyboardMarkup()
         btn = types.InlineKeyboardButton("🔔 Подписаться на канал", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")
         markup.add(btn)
+        bot.reply_to(
+            message,
+            "❌ Чтобы пользоваться ботом, подпишись на канал <b>KinoMania</b>!",
+            reply_markup=markup
+        )
+        return
+
+    msg = bot.reply_to(message, "🎬 Видео получено! Начинаю обработку...")
+
+    try:
+        # Сохраняем видео
+        file_info = bot.get_file(message.video.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+
+        input_path = "input.mp4"
+        output_path = "output.mp4"
+
+        with open(input_path, "wb") as new_file:
+            new_file.write(downloaded_file)
+
+        # 🔹 Индикатор прогресса
+        def update_progress(percent, text):
+            total_blocks = 10
+            filled = int(percent / 10)
+            bar = "▮" * filled + "▯" * (total_blocks - filled)
+            bot.edit_message_text(
+                f"{text}\n\n{bar} {percent}%",
+                chat_id=msg.chat.id,
+                message_id=msg.message_id
+            )
+
+        # Этапы
+        update_progress(10, "📥 Загружаю видео...")
+        time.sleep(1)
+        update_progress(30, "🎞 Подготавливаю кадры...")
+        time.sleep(1)
+
+        clip = mp.VideoFileClip(input_path)
+        update_progress(50, "⚙️ Применяю фильтры и эффекты...")
+        time.sleep(1)
+
+        processed_clip = clip.subclip(1, clip.duration).without_audio()
+        update_progress(70, "🧠 Оптимизация качества...")
+        time.sleep(1)
+
+        processed_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        update_progress(100, "✅ Обработка завершена!")
+
+        # Отправляем результат
+        with open(output_path, "rb") as video:
+            bot.send_video(
+                message.chat.id,
+                video,
+                caption="🎉 Готово! Твоё видео успешно обработано.\n\n"
+                        "📺 Подпишись на канал <b>@KinoMania</b> — там самые крутые инструменты 🎬"
+            )
+
+        # Очистка
+        clip.close()
+        processed_clip.close()
+        os.remove(input_path)
+        os.remove(output_path)
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ Ошибка: <code>{e}</code>")
+
+
+# 🔹 Ответ по умолчанию
+@bot.message_handler(func=lambda message: True)
+def default_response(message):
+    bot.send_message(message.chat.id, "📹 Просто отправь видео, и я обработаю его ✨")
+
+
+print("🤖 KinoMania Bot запущен...")
+bot.infinity_polling(skip_pending=True)
         bot.reply_to(
             message,
             "❌ Чтобы пользоваться ботом, подпишись на канал KinoMania!",
