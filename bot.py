@@ -2,7 +2,7 @@ import logging
 import asyncio
 import random
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from io import BytesIO
 
 # Настройка логирования
@@ -84,7 +84,7 @@ async def simulate_processing(chat_id, context, progress_message_id):
         logger.error(f"Error in simulation: {e}")
         return progress_message_id
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     user = update.message.from_user
     
     welcome_text = f"""
@@ -106,73 +106,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **Готов к работе! Отправь мне видео 🚀**
     """
     
-    await update.message.reply_text(welcome_text)
+    update.message.reply_text(welcome_text)
 
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_video(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     
     try:
         if update.message.video.file_size > 10 * 1024 * 1024:
-            await update.message.reply_text("❌ Файл слишком большой! Максимум 10MB.")
+            update.message.reply_text("❌ Файл слишком большой! Максимум 10MB.")
             return
 
-        progress_message = await update.message.reply_text("🔄 Начинаю обработку видео...")
-        progress_message_id = progress_message.message_id
-        
-        await update.message.reply_text("📥 Скачиваю видео...")
-        video_file = await update.message.video.get_file()
-        video_bytes = await video_file.download_as_bytearray()
-        
-        progress_message_id = await simulate_processing(chat_id, context, progress_message_id)
-        
-        await update.message.reply_text("🎬 Применяю алгоритмы удаления водяных знаков...")
-        await asyncio.sleep(2)
-        
-        try:
-            await context.bot.delete_message(chat_id, progress_message_id)
-            await update.message.reply_text("✅ Обработка завершена! Отправляю результат...")
+        # Создаем асинхронную задачу для обработки
+        async def process_video():
+            progress_message = update.message.reply_text("🔄 Начинаю обработку видео...")
+            progress_message_id = progress_message.message_id
             
-            await update.message.reply_video(
-                video=BytesIO(video_bytes),
-                caption="🎉 Видео обработано! Водяные знаки удалены."
-            )
-            
-        except Exception as e:
-            logger.error(f"Video sending error: {e}")
-            await context.bot.delete_message(chat_id, progress_message_id)
-            await update.message.reply_text("❌ Ошибка при отправке видео.")
-            
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text("❌ Ошибка обработки. Попробуй другое видео.")
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📹 Отправь мне видео для обработки водяных знаков!")
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Error: {context.error}")
-    try:
-        await update.message.reply_text("❌ Произошла ошибка. Попробуй еще раз.")
-    except:
-        pass
-
-def main():
-    try:
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.VIDEO, handle_video))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_error_handler(error_handler)
-        
-        logger.info("🤖 Бот запускается...")
-        print("🎬 Бот запущен!")
-        
-        application.run_polling()
-        
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-        print(f"❌ Ошибка запуска: {e}")
-
-if __name__ == "__main__":
-    main()
+            update.message.re
