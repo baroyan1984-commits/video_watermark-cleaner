@@ -7,3 +7,11 @@ services:
     envVars:
       - key: BOT_TOKEN
         value: "8271382093:AAE9JvChUNMqgvRG3p0xObGopGM7ENyMRCM"
+services:
+  - type: web
+    name: your-bot
+    env: python
+    buildCommand: |
+      apt-get update && apt-get install -y ffmpeg
+      pip install -r requirements.txt
+    startCommand: python bot.py
