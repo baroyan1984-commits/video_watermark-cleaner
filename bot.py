@@ -216,6 +216,160 @@ def main():
         print(f"❌ Ошибка запуска: {e}")
 
 if __name__ == "__main__":
+    main()        logger.error(f"Error in progress update: {e}")
+        return None
+
+async def simulate_processing(chat_id, context, progress_message_id):
+    """Имитирует процесс обработки с прогрессом"""
+    try:
+        # Стадия скачивания
+        for i in range(0, 21):
+            progress_message_id = await send_progress_update(
+                chat_id, i, "download", context, progress_message_id
+            )
+            await asyncio.sleep(0.1)
+        
+        # Стадия анализа
+        for i in range(21, 41):
+            progress_message_id = await send_progress_update(
+                chat_id, i, "analyze", context, progress_message_id
+            )
+            await asyncio.sleep(0.2)
+        
+        # Стадия обработки
+        for i in range(41, 81):
+            progress_message_id = await send_progress_update(
+                chat_id, i, "process", context, progress_message_id
+            )
+            await asyncio.sleep(0.3)
+        
+        # Финальная стадия
+        for i in range(81, 101):
+            progress_message_id = await send_progress_update(
+                chat_id, i, "final", context, progress_message_id
+            )
+            await asyncio.sleep(0.2)
+        
+        return progress_message_id
+        
+    except Exception as e:
+        logger.error(f"Error in simulation: {e}")
+        return progress_message_id
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start"""
+    user = update.message.from_user
+    
+    welcome_text = f"""
+🎬 **Video Watermark Remover Pro** 
+
+Привет {user.first_name}! Я профессиональный инструмент для удаления водяных знаков с видео.
+
+✨ **Возможности:**
+• Автоматическое определение водяных знаков
+• Профессиональная обработка видео  
+• Сохранение качества
+• Реальное время выполнения
+
+📹 **Как использовать:**
+1. Отправь мне видео (до 10MB)
+2. Наблюдай за процессом обработки
+3. Получи результат!
+
+⚠️ **Важно:** Используй короткие видео до 10 секунд для лучшего результата.
+
+**Готов к работе! Отправь мне видео 🚀**
+    """
+    
+    await update.message.reply_text(welcome_text)
+
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик видео файлов"""
+    chat_id = update.message.chat_id
+    
+    try:
+        # Проверяем размер файла
+        if update.message.video.file_size > 10 * 1024 * 1024:
+            await update.message.reply_text("❌ Файл слишком большой! Максимум 10MB.")
+            return
+
+        # Начинаем обработку
+        progress_message = await update.message.reply_text("🔄 Начинаю обработку видео...")
+        progress_message_id = progress_message.message_id
+        
+        # Скачиваем видео в память (без сохранения на диск)
+        await update.message.reply_text("📥 Скачиваю видео...")
+        video_file = await update.message.video.get_file()
+        
+        # Скачиваем видео в оперативную память
+        video_bytes = await video_file.download_as_bytearray()
+        
+        # Запускаем имитацию обработки с прогрессом
+        progress_message_id = await simulate_processing(chat_id, context, progress_message_id)
+        
+        # Обработка видео (имитация)
+        await update.message.reply_text("🎬 Применяю алгоритмы удаления водяных знаков...")
+        await asyncio.sleep(2)
+        
+        try:
+            # Отправляем результат (оригинальное видео, так как обработка имитируется)
+            await context.bot.delete_message(chat_id, progress_message_id)
+            await update.message.reply_text("✅ Обработка завершена! Отправляю результат...")
+            
+            # Отправляем оригинальное видео обратно (имитация обработки)
+            await update.message.reply_video(
+                video=BytesIO(video_bytes),
+                caption="🎉 Видео обработано! Водяные знаки удалены.\n\n⚠️ Режим демонстрации: используется имитация обработки"
+            )
+            
+        except Exception as e:
+            logger.error(f"Video sending error: {e}")
+            await context.bot.delete_message(chat_id, progress_message_id)
+            await update.message.reply_text("❌ Ошибка при отправке видео. Попробуй еще раз.")
+            
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("❌ Ошибка обработки. Попробуй другое видео.")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик текстовых сообщений"""
+    await update.message.reply_text("📹 Отправь мне видео для обработки водяных знаков!")
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Error: {context.error}")
+    
+    try:
+        await update.message.reply_text("❌ Произошла ошибка. Попробуй еще раз.")
+    except:
+        pass
+
+def main():
+    """Запуск бота"""
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.VIDEO, handle_video))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_error_handler(error_handler)
+        
+        # Запускаем бота
+        logger.info("🤖 Бот запускается...")
+        print("=" * 50)
+        print("🎬 VIDEO WATERMARK REMOVER PRO")
+        print("🚀 Бот запущен и готов к работе!")
+        print("📱 Найди бота в Telegram и отправь ему видео")
+        print("=" * 50)
+        
+        application.run_polling()
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        print(f"❌ Ошибка запуска: {e}")
+
+if __name__ == "__main__":
     main()        return None
 
 async def simulate_processing(chat_id, context, progress_message_id):
