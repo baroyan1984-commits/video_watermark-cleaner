@@ -5,7 +5,7 @@ import time
 import moviepy.editor as mp
 
 # 🔹 Укажи свой токен
-BOT_TOKEN = "ТОКЕН_ТВОЕГО_БОТА"
+BOT_TOKEN = "8271382093:AAE9JvChUNMqgvRG3p0xObGopGM7ENyMRCM"
 
 # 🔹 Канал, на который нужно подписаться
 CHANNEL_USERNAME = "@KinoMania"
